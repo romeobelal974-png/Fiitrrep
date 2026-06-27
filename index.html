@@ -1,0 +1,982 @@
+<!doctype html>
+<html lang="en" class="h-full">
+ <head><script src="/_sdk/telemetry_sdk.js"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PT Fit Video</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.263.0/dist/umd/lucide.min.js"></script>
+  <script src="/_sdk/element_sdk.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&amp;family=Poppins:wght@400;500;600;700&amp;family=Bebas+Neue&amp;family=Rajdhani:wght@700&amp;display=swap" rel="stylesheet">
+  <style>
+    html, body { height: 100%; margin: 0; padding: 0; }
+    body { font-family: 'Poppins', sans-serif; background-color: #09090b; color: #ffffff; overflow-y: auto; }
+    .toast { position: fixed; top: 20px; right: 20px; z-index: 9999; padding: 12px 20px; border-radius: 8px; color: #fff; animation: slideIn 0.3s ease; }
+    .toast-success { background: #10b981; }
+    .toast-error { background: #ef4444; }
+    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 1000; display: flex; align-items: center; justify-content: center; }
+    .hero-logo-text { font-family: 'Bebas Neue', 'Rajdhani', sans-serif; font-weight: 900; letter-spacing: 0.08em; font-size: 3.5rem; background: linear-gradient(135deg, #10b981 0%, #34d399 50%, #6ee7b7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; filter: drop-shadow(0 0 15px rgba(16, 185, 129, 0.3)); text-transform: uppercase; }
+    .stat-box { background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(52, 211, 153, 0.05) 100%); border: 1px solid rgba(16, 185, 129, 0.3); animation: countUp 0.6s ease-out; }
+    @keyframes countUp { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: scale(1); } }
+    .video-link-box { display: none !important; }
+    .video-link-box.show { display: flex !important; }
+    .logo-img { max-height: 50px; width: auto; object-fit: contain; }
+    .hero-logo-img { max-height: 150px; width: auto; object-fit: contain; margin: 0 auto; }
+  </style>
+  <script src="/_sdk/data_sdk.js"></script>
+  <style>body { box-sizing: border-box; }</style>
+ </head>
+ <body class="h-full w-full bg-zinc-950 text-white overflow-auto">
+  <div id="app" class="w-full h-full"></div>
+  <script>
+    let allData = { users: [], categories: [], videos: [], branding: [], subscriptions: [], passwordRequests: [], banners: [], favorites: [] };
+    let subscriptionMap = {};
+    const ADMIN_USER = 'Ramadan';
+    const ADMIN_PASS = 'Poiuy8995';
+    let currentUser = null;
+    let currentView = 'landing';
+    let adminTab = 'dashboard';
+    let isLoading = false;
+
+    const dataHandler = {
+      onDataChanged(data) {
+        allData = { users: [], categories: [], videos: [], branding: [], subscriptions: [], passwordRequests: [], banners: [], favorites: [] };
+        data.forEach(item => {
+          if (item.type === 'user') allData.users.push(item);
+          else if (item.type === 'category') allData.categories.push(item);
+          else if (item.type === 'video') allData.videos.push(item);
+          else if (item.type === 'branding') allData.branding.push(item);
+          else if (item.type === 'subscription') allData.subscriptions.push(item);
+          else if (item.type === 'passwordRequest') allData.passwordRequests.push(item);
+          else if (item.type === 'banner') allData.banners.push(item);
+          else if (item.type === 'favorite') allData.favorites.push(item);
+        });
+        subscriptionMap = {};
+        allData.subscriptions.forEach(s => { subscriptionMap[s.username] = s; subscriptionMap[s.phone] = s; });
+        render();
+      }
+    };
+
+    function toast(msg, type = 'success') {
+      const t = document.createElement('div');
+      t.className = `toast toast-${type}`;
+      t.textContent = msg;
+      document.body.appendChild(t);
+      setTimeout(() => t.remove(), 2500);
+    }
+
+    function render() {
+      const app = document.getElementById('app');
+      if (!app) return;
+      try {
+        switch (currentView) {
+          case 'landing': app.innerHTML = renderLanding(); break;
+          case 'login': app.innerHTML = renderLogin(); break;
+          case 'register': app.innerHTML = renderRegister(); break;
+          case 'browse': app.innerHTML = renderBrowse(); break;
+          case 'favorites': app.innerHTML = renderFavorites(); break;
+          case 'admin': app.innerHTML = renderAdmin(); break;
+          case 'admin-login': app.innerHTML = renderAdminLogin(); break;
+          case 'forgot-password': app.innerHTML = renderForgotPassword(); break;
+          default: app.innerHTML = renderLanding();
+        }
+        lucide.createIcons();
+        loadVideoThumbnails();
+        bindEvents();
+      } catch (err) {
+        console.error('Render error:', err);
+        app.innerHTML = '<div style="padding:40px;text-align:center;color:#ef4444"><h2>Error Loading Page</h2><p>' + err.message + '</p></div>';
+      }
+    }
+
+    function renderNav() {
+      const isAdmin = currentUser && currentUser.username === ADMIN_USER;
+      const branding = allData.branding[0] || { site_name: 'PT FIT VIDEO', logo_url: 'https://i.postimg.cc/XN25zxCG/1000234956-removebg-preview.png', site_title_image: '' };
+      const logoUrl = branding.logo_url || 'https://i.postimg.cc/XN25zxCG/1000234956-removebg-preview.png';
+      return `<nav class="w-full bg-zinc-900/80 backdrop-blur border-b border-zinc-800 px-4 py-3 flex items-center justify-between sticky top-0 z-50">
+        <div class="flex items-center gap-3 cursor-pointer" onclick="currentView='${currentUser ? (isAdmin ? 'admin' : 'browse') : 'landing'}'; render();">
+          <img src="${logoUrl}" alt="PT Fit Video Logo" class="logo-img" style="max-height: 60px; width: auto; object-fit: contain; min-width: 50px;" loading="lazy" onerror="this.style.background='#27272a'; this.style.padding='8px'; this.style.borderRadius='6px';">
+        </div>
+        <div class="flex items-center gap-4">
+          ${currentUser ? `<span class="text-zinc-400 text-sm hidden sm:inline">Hi, ${currentUser.username}</span>
+            ${isAdmin ? `<button onclick="currentView='admin'; render();" class="text-zinc-400 hover:text-purple-400"><i data-lucide="shield" class="w-6 h-6"></i></button>` : ''}
+            <button onclick="currentUser=null; currentView='landing'; render();" class="text-zinc-400 hover:text-red-400"><i data-lucide="log-out" class="w-6 h-6"></i></button>` :
+            `<button onclick="currentView='admin-login'; render();" class="text-zinc-400 hover:text-purple-400"><i data-lucide="shield" class="w-6 h-6"></i></button>
+             <button onclick="currentView='login'; render();" class="text-zinc-400 hover:text-emerald-400"><i data-lucide="log-in" class="w-6 h-6"></i></button>
+             <button onclick="currentView='register'; render();" class="text-zinc-400 hover:text-emerald-400"><i data-lucide="user-plus" class="w-6 h-6"></i></button>`}
+        </div>
+      </nav>`;
+    }
+
+    function renderLanding() {
+      const branding = allData.branding[0] || { site_name: 'PT FIT VIDEO', logo_url: 'https://i.postimg.cc/XN25zxCG/1000234956-removebg-preview.png', site_title_image: '' };
+      const logoUrl = branding.logo_url || 'https://i.postimg.cc/XN25zxCG/1000234956-removebg-preview.png';
+      const isArabic = localStorage.getItem('isArabic') === 'true';
+      return `${renderNav()}
+      <div class="px-4 sm:px-8 py-20 max-w-6xl mx-auto">
+        <div class="text-center mb-16">
+          <div class="mb-6 flex justify-center">
+            <img src="${logoUrl}" alt="Fit Rep" class="hero-logo-img" style="max-height: 250px; width: auto; object-fit: contain;" loading="lazy" onerror="this.style.background='linear-gradient(135deg, #27272a 0%, #18181b 100%)'; this.style.padding='40px'; this.style.borderRadius='16px';">
+          </div>
+          <p class="text-emerald-300 text-2xl font-bold mb-4">${isArabic ? 'احقق أهدافك الرياضية' : 'Master Your Fitness Journey'}</p>
+          <p class="text-zinc-400 text-lg max-w-2xl mx-auto mb-6" id="hero-tagline">${isArabic ? 'تدرب بذكاء. شاهد. تعلم.' : 'Train Smart. Watch. Learn.'}</p>
+          
+          <div class="flex justify-center mb-8">
+            <button onclick="toggleLanguage()" class="text-sm bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded-lg border border-zinc-700 transition">
+              <i data-lucide="globe" class="w-4 h-4 inline mr-2"></i>${isArabic ? 'English' : 'العربية'}
+            </button>
+          </div>
+          
+          <div class="bg-gradient-to-r from-emerald-900/20 to-emerald-900/10 border border-emerald-800/50 rounded-2xl p-8 mb-12 max-w-3xl mx-auto">
+            <div class="text-left">
+              <h3 class="text-emerald-300 font-bold text-lg mb-4 flex items-center gap-2">
+                <i data-lucide="zap" class="w-5 h-5"></i>
+                ${isArabic ? 'عن Fit Rep' : 'About Fit Rep'}
+              </h3>
+              <p class="text-zinc-300 leading-relaxed ${isArabic ? 'text-right' : 'text-left'}">
+                ${isArabic 
+                  ? 'Fit Rep هو منصة رياضية تساعدك على تعلم تمارين اللياقة البدنية بالطريقة الصحيحة من خلال دروس فيديو واضحة وسهلة المتابعة. استكشف مجموعة كبيرة من مقاطع الفيديو للتمارين لجميع المجموعات العضلية الرئيسية، مناسبة للمبتدئين والرياضيين المتقدمين على حد سواء. تعلم الأداء الصحيح، وحسّن تقنيتك، وحقق أهدافك الرياضية من خلال مقاطع تدريبية بسيطة وعالية الجودة.'
+                  : 'Fit Rep is a fitness platform that helps you learn workout exercises the right way through clear and easy-to-follow video tutorials. Explore a large collection of exercise videos for all major muscle groups, suitable for beginners and advanced athletes alike. Learn proper form, improve your technique, and achieve your fitness goals with simple, high-quality training videos.'
+                }
+              </p>
+            </div>
+          </div>
+          <div class="flex flex-col sm:flex-row gap-3 justify-center mb-16">
+            <button onclick="currentView='register'; render();" class="bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 px-8 py-4 rounded-xl font-bold text-lg flex items-center gap-2 justify-center"><i data-lucide="zap" class="w-5 h-5"></i>Get Started</button>
+            <button onclick="currentView='login'; render();" class="bg-zinc-800 hover:bg-zinc-700 px-8 py-4 rounded-xl font-bold text-lg border border-zinc-700">Sign In</button>
+          </div>
+          <div class="grid grid-cols-2 gap-6 max-w-2xl mx-auto mb-16">
+            <div class="stat-box rounded-xl p-6"><p class="text-zinc-400 text-sm mb-2">Active Members</p><p class="text-emerald-300 text-4xl font-bold stat-counter" data-target="1932">0</p></div>
+            <div class="stat-box rounded-xl p-6"><p class="text-zinc-400 text-sm mb-2">Total Views</p><p class="text-emerald-300 text-4xl font-bold stat-counter" data-target="765000">0</p></div>
+          </div>
+        </div>
+      </div>
+      <footer class="w-full bg-zinc-900 border-t border-zinc-800 px-4 sm:px-8 py-8">
+        <div class="max-w-6xl mx-auto">
+          <div class="flex flex-col sm:flex-row items-center justify-between mb-6">
+            <div class="text-center sm:text-left mb-4 sm:mb-0">
+              <p class="text-zinc-400 text-sm">Follow us on social media</p>
+              <p class="text-zinc-500 text-xs mt-1">Stay updated with our latest content</p>
+            </div>
+            <div class="flex items-center gap-4">
+              <a href="https://www.instagram.com/ramadan.rabie_?igsh=YmRjaDlqNWRtZWhp" target="_blank" rel="noopener noreferrer" class="w-10 h-10 flex items-center justify-center bg-zinc-800 hover:bg-pink-600 rounded-full transition duration-300" title="Instagram">
+                <i data-lucide="instagram" class="w-5 h-5 text-white"></i>
+              </a>
+              <a href="https://www.facebook.com/share/1E5UzDkwGi/?mibextid=wwXIfr" target="_blank" rel="noopener noreferrer" class="w-10 h-10 flex items-center justify-center bg-zinc-800 hover:bg-blue-600 rounded-full transition duration-300" title="Facebook">
+                <i data-lucide="facebook" class="w-5 h-5 text-white"></i>
+              </a>
+              <a href="https://wa.me/201044186025" target="_blank" rel="noopener noreferrer" class="w-10 h-10 flex items-center justify-center bg-zinc-800 hover:bg-green-600 rounded-full transition duration-300" title="WhatsApp">
+                <i data-lucide="message-circle" class="w-5 h-5 text-white"></i>
+              </a>
+            </div>
+          </div>
+          <div class="border-t border-zinc-800 pt-4 text-center">
+            <p class="text-zinc-600 text-xs">© 2024 PT FIT VIDEO. All rights reserved. | Transforming Fitness Through Video</p>
+          </div>
+        </div>
+      </footer>`;
+    }
+
+    function renderLogin() {
+      return `${renderNav()}
+      <div class="flex items-center justify-center px-4 py-16">
+        <div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 w-full max-w-sm">
+          <h2 class="text-3xl font-bold mb-6 text-center">Sign In</h2>
+          <form id="login-form" class="space-y-4">
+            <div><label class="block text-sm text-zinc-400 mb-1">Phone Number</label><input id="l-phone" type="tel" placeholder="+1234567890" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5" required></div>
+            <div><label class="block text-sm text-zinc-400 mb-1">Password</label><input id="l-pass" type="password" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5" required></div>
+            <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 py-3 rounded-xl font-semibold">Login</button>
+          </form>
+          <p class="text-zinc-500 text-sm text-center mt-4">No account? <span class="text-emerald-400 cursor-pointer" onclick="currentView='register'; render();">Register</span></p>
+        </div>
+      </div>`;
+    }
+
+    function renderRegister() {
+      return `${renderNav()}
+      <div class="flex items-center justify-center px-4 py-16">
+        <div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 w-full max-w-sm">
+          <h2 class="text-3xl font-bold mb-6 text-center">Create Account</h2>
+          <form id="reg-form" class="space-y-4">
+            <div><label class="block text-sm text-zinc-400 mb-1">Full Name</label><input id="r-name" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5" required></div>
+            <div><label class="block text-sm text-zinc-400 mb-1">Phone Number</label><input id="r-phone" type="tel" placeholder="+1234567890" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5" required></div>
+            <div><label class="block text-sm text-zinc-400 mb-1">Password</label><input id="r-pass" type="password" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5" required></div>
+            <div><label class="block text-sm text-zinc-400 mb-1">Confirm Password</label><input id="r-pass2" type="password" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5" required></div>
+            <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 py-3 rounded-xl font-semibold">Register</button>
+          </form>
+        </div>
+      </div>`;
+    }
+
+    function renderAdminLogin() {
+      return `<nav class="w-full bg-zinc-900/80 backdrop-blur border-b border-zinc-800 px-4 py-3 flex items-center justify-between sticky top-0 z-50">
+        <div class="flex items-center gap-2"><i data-lucide="shield" class="w-7 h-7 text-purple-400"></i><span class="text-2xl text-white font-bold">Admin Panel</span></div>
+        <button onclick="currentView='landing'; render();" class="text-sm bg-zinc-800 hover:bg-zinc-700 px-3 py-1.5 rounded-lg">Back</button>
+      </nav>
+      <div class="flex items-center justify-center px-4 py-16">
+        <div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 w-full max-w-sm">
+          <h2 class="text-3xl font-bold mb-6 text-center">Admin Access</h2>
+          <form id="admin-login-form" class="space-y-4">
+            <div><label class="block text-sm text-zinc-400 mb-1">Username</label><input id="a-user" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5" required></div>
+            <div><label class="block text-sm text-zinc-400 mb-1">Password</label><input id="a-pass" type="password" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5" required></div>
+            <button type="submit" class="w-full bg-purple-600 hover:bg-purple-500 py-3 rounded-xl font-semibold">Access Dashboard</button>
+          </form>
+        </div>
+      </div>`;
+    }
+
+    function renderForgotPassword() {
+      return `${renderNav()}
+      <div class="flex items-center justify-center px-4 py-16">
+        <div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 w-full max-w-sm">
+          <h2 class="text-3xl font-bold mb-6 text-center">Reset Password</h2>
+          <form id="forgot-form" class="space-y-4">
+            <div><label class="block text-sm text-zinc-400 mb-1">Phone Number</label><input id="fp-phone" type="tel" placeholder="+1234567890" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5" required></div>
+            <div><label class="block text-sm text-zinc-400 mb-1">New Password</label><input id="fp-pass" type="password" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5" required></div>
+            <div><label class="block text-sm text-zinc-400 mb-1">Confirm Password</label><input id="fp-pass2" type="password" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5" required></div>
+            <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 py-3 rounded-xl font-semibold">Request Password Reset</button>
+          </form>
+        </div>
+      </div>`;
+    }
+
+    function renderBrowse() {
+      const sub = subscriptionMap[currentUser.phone];
+      const daysRemaining = sub ? Math.ceil((new Date(sub.expiresAt) - new Date()) / (1000 * 60 * 60 * 24)) : 0;
+      const isExpired = daysRemaining <= 0;
+      const userFavorites = allData.favorites.filter(f => f.user_phone === currentUser.phone);
+      const showFavoritesTab = userFavorites.length > 0;
+      
+      return `${renderNav()}
+      <div class="px-4 sm:px-8 py-8 max-w-6xl mx-auto">
+        <div class="mb-8 bg-gradient-to-r from-emerald-900/30 to-emerald-900/10 border border-emerald-800/50 rounded-xl p-4 flex items-center justify-between">
+          <div>
+            <p class="text-emerald-300 font-semibold">Subscription Status</p>
+            <p class="text-zinc-400 text-sm mt-1">${isExpired ? '⚠ Your subscription has expired' : `✓ ${daysRemaining} days remaining`}</p>
+          </div>
+          <div class="text-right">
+            <p class="text-emerald-400 font-bold text-lg">${daysRemaining} Days</p>
+            <p class="text-zinc-500 text-xs">Plan: ${sub?.subscription_plan || 'N/A'}</p>
+          </div>
+        </div>
+        
+        <div class="mb-8">
+          <div class="flex gap-3 overflow-x-auto pb-2 mb-6">
+            <button class="px-6 py-2.5 bg-emerald-600 text-white font-medium rounded-full category-btn" data-cat="all">All Videos</button>
+            ${showFavoritesTab ? '<button class="px-6 py-2.5 bg-pink-600 text-white font-medium rounded-full" onclick="currentView=\'favorites\'; render();">❤ Favorites</button>' : ''}
+            ${allData.categories.map(c => `<button class="px-6 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium rounded-full category-btn" data-cat="${c.__backendId}">${c.name}</button>`).join('')}
+          </div>
+          <input id="search-input" placeholder="Search videos..." class="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-xl pl-4 pr-4 py-3">
+        </div>
+        <div id="browse-content" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          ${allData.videos.map(v => videoCardWithFavorite(v)).join('')}
+        </div>
+      </div>
+      <div id="video-modal"></div>`;
+    }
+
+    function getVideoThumbnail(video) {
+      if (video.url.includes('youtube.com') || video.url.includes('youtu.be')) {
+        const youtubeId = video.url.includes('youtube.com') 
+          ? video.url.split('v=')[1]?.split('&')[0]
+          : video.url.split('youtu.be/')[1]?.split('?')[0];
+        return `https://img.youtube.com/vi/${youtubeId}/maxresdefault.jpg`;
+      }
+      if (video.url.includes('vimeo.com')) {
+        return 'vimeo-loading';
+      }
+      return 'frame-loading';
+    }
+
+    function generateVideoThumbnail(videoId, videoUrl) {
+      const thumbElement = document.getElementById(`thumb-${videoId}`);
+      if (!thumbElement) return;
+
+      const video = document.createElement('video');
+      video.crossOrigin = 'anonymous';
+      video.preload = 'metadata';
+      video.muted = true;
+      video.playsInline = true;
+
+      video.onloadedmetadata = () => {
+        video.currentTime = 1;
+      };
+
+      video.onseeked = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 1280;
+        canvas.height = 720;
+        const ctx = canvas.getContext('2d');
+        
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const thumbnailUrl = canvas.toDataURL('image/jpeg', 0.8);
+          
+          thumbElement.innerHTML = `<img src="${thumbnailUrl}" alt="Video thumbnail" class="w-full h-full object-cover">
+            <div class="absolute inset-0 bg-black/30 group-hover:bg-black/50 transition flex items-center justify-center">
+              <div class="bg-emerald-500 rounded-full p-3 group-hover:bg-emerald-400 transition">
+                <i data-lucide="play" class="w-6 h-6 text-white fill-white"></i>
+              </div>
+            </div>`;
+          lucide.createIcons();
+        }
+      };
+
+      video.onerror = () => {
+        thumbElement.innerHTML = `<div class="w-full h-full bg-gradient-to-br from-zinc-700 to-zinc-800 flex items-center justify-center">
+          <div class="text-center">
+            <i data-lucide="video" class="w-12 h-12 text-zinc-600 mx-auto mb-2"></i>
+            <p class="text-xs text-zinc-600">Unable to load preview</p>
+          </div>
+        </div>`;
+        lucide.createIcons();
+      };
+
+      video.src = videoUrl;
+    }
+
+    function videoCard(v) {
+      const thumbnail = getVideoThumbnail(v);
+      const isYoutube = v.url.includes('youtube.com') || v.url.includes('youtu.be');
+      const isVimeo = v.url.includes('vimeo.com');
+      const isDirectVideo = !isYoutube && !isVimeo;
+      
+      let thumbnailHtml = '';
+      if (isYoutube) {
+        const youtubeId = v.url.includes('youtube.com') 
+          ? v.url.split('v=')[1]?.split('&')[0]
+          : v.url.split('youtu.be/')[1]?.split('?')[0];
+        thumbnailHtml = `<img src="https://img.youtube.com/vi/${youtubeId}/maxresdefault.jpg" alt="${v.title}" class="w-full h-full object-cover" loading="lazy" onerror="this.src='https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg'">`;
+      } else if (isVimeo) {
+        thumbnailHtml = `<div id="thumb-${v.__backendId}" class="w-full h-full bg-gradient-to-b from-zinc-700 to-zinc-800 flex items-center justify-center">
+          <div class="text-center">
+            <i data-lucide="play-circle" class="w-12 h-12 text-emerald-400 mx-auto"></i>
+          </div>
+        </div>`;
+      } else if (isDirectVideo) {
+        thumbnailHtml = `<div id="thumb-${v.__backendId}" class="w-full h-full bg-gradient-to-br from-zinc-700 to-zinc-800 flex items-center justify-center">
+          <div class="text-center">
+            <i data-lucide="film" class="w-12 h-12 text-zinc-500 mx-auto mb-2"></i>
+            <p class="text-xs text-zinc-600">Loading preview...</p>
+          </div>
+        </div>`;
+      }
+
+      return `<div class="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden hover:border-emerald-600/50 transition group cursor-pointer" onclick="openVideo('${v.__backendId}')">
+        <div class="relative aspect-video bg-zinc-800 overflow-hidden">
+          ${thumbnailHtml}
+          <div class="absolute inset-0 bg-black/30 group-hover:bg-black/50 transition flex items-center justify-center">
+            <div class="bg-emerald-500 rounded-full p-3 group-hover:bg-emerald-400 transition">
+              <i data-lucide="play" class="w-6 h-6 text-white fill-white"></i>
+            </div>
+          </div>
+        </div>
+        <div class="p-4">
+          <p class="font-medium text-sm line-clamp-2">${v.title}</p>
+          <p class="text-xs text-zinc-500 mt-2">Category: ${allData.categories.find(c => c.__backendId === v.category)?.name || 'N/A'}</p>
+        </div>
+      </div>`;
+    }
+
+    function videoCardWithFavorite(v) {
+      const thumbnail = getVideoThumbnail(v);
+      const isYoutube = v.url.includes('youtube.com') || v.url.includes('youtu.be');
+      const isVimeo = v.url.includes('vimeo.com');
+      const isDirectVideo = !isYoutube && !isVimeo;
+      const isFavorited = allData.favorites && allData.favorites.some(f => f.video_id === v.__backendId && f.user_phone === currentUser.phone);
+      
+      let thumbnailHtml = '';
+      if (isYoutube) {
+        const youtubeId = v.url.includes('youtube.com') 
+          ? v.url.split('v=')[1]?.split('&')[0]
+          : v.url.split('youtu.be/')[1]?.split('?')[0];
+        thumbnailHtml = `<img src="https://img.youtube.com/vi/${youtubeId}/maxresdefault.jpg" alt="${v.title}" class="w-full h-full object-cover" loading="lazy" onerror="this.src='https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg'">`;
+      } else if (isVimeo) {
+        thumbnailHtml = `<div id="thumb-${v.__backendId}" class="w-full h-full bg-gradient-to-b from-zinc-700 to-zinc-800 flex items-center justify-center">
+          <div class="text-center">
+            <i data-lucide="play-circle" class="w-12 h-12 text-emerald-400 mx-auto"></i>
+          </div>
+        </div>`;
+      } else if (isDirectVideo) {
+        thumbnailHtml = `<div id="thumb-${v.__backendId}" class="w-full h-full bg-gradient-to-br from-zinc-700 to-zinc-800 flex items-center justify-center">
+          <div class="text-center">
+            <i data-lucide="film" class="w-12 h-12 text-zinc-500 mx-auto mb-2"></i>
+            <p class="text-xs text-zinc-600">Loading preview...</p>
+          </div>
+        </div>`;
+      }
+
+      return `<div class="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden hover:border-emerald-600/50 transition group">
+        <div class="relative aspect-video bg-zinc-800 overflow-hidden cursor-pointer" onclick="openVideo('${v.__backendId}')">
+          ${thumbnailHtml}
+          <div class="absolute inset-0 bg-black/30 group-hover:bg-black/50 transition flex items-center justify-center">
+            <div class="bg-emerald-500 rounded-full p-3 group-hover:bg-emerald-400 transition">
+              <i data-lucide="play" class="w-6 h-6 text-white fill-white"></i>
+            </div>
+          </div>
+          <button class="absolute top-2 right-2 w-10 h-10 rounded-full bg-black/70 hover:bg-pink-600 flex items-center justify-center transition favorite-btn" data-video-id="${v.__backendId}" onclick="event.stopPropagation(); toggleFavorite('${v.__backendId}', '${v.title}')">
+            <i data-lucide="heart" class="w-5 h-5 ${isFavorited ? 'text-pink-500 fill-pink-500' : 'text-white'}"></i>
+          </button>
+        </div>
+        <div class="p-4">
+          <p class="font-medium text-sm line-clamp-2">${v.title}</p>
+          <p class="text-xs text-zinc-500 mt-2">Category: ${allData.categories.find(c => c.__backendId === v.category)?.name || 'N/A'}</p>
+        </div>
+      </div>`;
+    }
+
+    function loadVideoThumbnails() {
+      allData.videos.forEach(v => {
+        if (v.url.includes('vimeo.com')) {
+          const vimeoId = v.url.split('vimeo.com/')[1]?.split('/')[0]?.split('?')[0];
+          if (!vimeoId) return;
+          
+          fetch(`https://vimeo.com/api/v2/video/${vimeoId}.json`)
+            .then(r => r.json())
+            .then(data => {
+              const thumbDiv = document.getElementById(`thumb-${v.__backendId}`);
+              if (thumbDiv && data[0]?.thumbnail_large) {
+                thumbDiv.innerHTML = `<img src="${data[0].thumbnail_large}" alt="${v.title}" class="w-full h-full object-cover">
+                  <div class="absolute inset-0 bg-black/30 group-hover:bg-black/50 transition flex items-center justify-center">
+                    <div class="bg-emerald-500 rounded-full p-3 group-hover:bg-emerald-400 transition">
+                      <i data-lucide="play" class="w-6 h-6 text-white fill-white"></i>
+                    </div>
+                  </div>`;
+                lucide.createIcons();
+              }
+            })
+            .catch(e => console.log('Vimeo thumbnail fetch failed for', vimeoId));
+        }
+        else if (!v.url.includes('youtube.com') && !v.url.includes('youtu.be')) {
+          generateVideoThumbnail(v.__backendId, v.url);
+        }
+      });
+    }
+
+    function openVideo(id) {
+      const video = allData.videos.find(v => v.__backendId === id);
+      if (!video) return;
+      const isYoutube = video.url.includes('youtube');
+      const isVimeo = video.url.includes('vimeo');
+      const videoContent = (isYoutube || isVimeo) ? 
+        `<iframe src="${video.url}" class="w-full h-full" frameborder="0" allowfullscreen></iframe>` :
+        `<video class="w-full h-full" controls><source src="${video.url}"></video>`;
+      document.getElementById('video-modal').innerHTML = `<div class="modal-overlay" onclick="if(event.target===this) document.getElementById('video-modal').innerHTML=''">
+        <div class="bg-zinc-900 rounded-2xl overflow-hidden w-full max-w-4xl mx-4">
+          <div class="flex justify-between items-center p-4 border-b border-zinc-800">
+            <h3 class="font-semibold">${video.title}</h3>
+            <button onclick="document.getElementById('video-modal').innerHTML=''"><i data-lucide="x" class="w-5 h-5"></i></button>
+          </div>
+          <div class="aspect-video bg-black">${videoContent}</div>
+        </div>
+      </div>`;
+      lucide.createIcons();
+    }
+
+    function renderFavorites() {
+      const userFavorites = allData.favorites.filter(f => f.user_phone === currentUser.phone);
+      const favoritedVideos = userFavorites.map(fav => allData.videos.find(v => v.__backendId === fav.video_id)).filter(v => v);
+      
+      return `${renderNav()}
+      <div class="px-4 sm:px-8 py-8 max-w-6xl mx-auto">
+        <div class="mb-8 flex items-center justify-between">
+          <div>
+            <h2 class="text-3xl font-bold flex items-center gap-2"><i data-lucide="heart" class="w-8 h-8 text-pink-500 fill-pink-500"></i> My Favorites</h2>
+            <p class="text-zinc-400 text-sm mt-2">${favoritedVideos.length} video${favoritedVideos.length !== 1 ? 's' : ''} saved</p>
+          </div>
+          <button onclick="currentView='browse'; render();" class="bg-emerald-600 hover:bg-emerald-500 px-6 py-2.5 rounded-lg font-medium flex items-center gap-2">
+            <i data-lucide="arrow-left" class="w-4 h-4"></i> Back to Browse
+          </button>
+        </div>
+        
+        ${favoritedVideos.length === 0 ? 
+          `<div class="text-center py-16 bg-zinc-900 border border-zinc-800 rounded-xl">
+            <i data-lucide="heart" class="w-16 h-16 text-zinc-700 mx-auto mb-4"></i>
+            <h3 class="text-xl font-semibold text-zinc-400 mb-2">No Favorites Yet</h3>
+            <p class="text-zinc-500 mb-6">Click the heart icon on any video to add it to your favorites!</p>
+            <button onclick="currentView='browse'; render();" class="bg-emerald-600 hover:bg-emerald-500 px-6 py-2 rounded-lg font-medium">Browse Videos</button>
+          </div>` :
+          `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            ${favoritedVideos.map(v => videoCardWithFavorite(v)).join('')}
+          </div>`
+        }
+      </div>
+      <div id="video-modal"></div>`;
+    }
+
+    function renderAdmin() {
+      return `${renderNav()}
+      <div class="px-4 sm:px-8 py-6 max-w-7xl mx-auto">
+        <div class="flex gap-2 mb-6 flex-wrap">
+          ${['dashboard','categories','videos','users','subscriptions'].map(t => `<button onclick="adminTab='${t}'; render();" class="px-4 py-2 rounded-lg text-sm font-medium ${adminTab===t ? 'bg-purple-600 text-white' : 'bg-zinc-800 text-zinc-400'}">${t.charAt(0).toUpperCase()+t.slice(1)}</button>`).join('')}
+        </div>
+        <div>${adminTab === 'dashboard' ? adminDashboard() : adminTab === 'categories' ? adminCategories() : adminTab === 'videos' ? adminVideos() : adminTab === 'users' ? adminUsers() : adminSubscriptions()}</div>
+      </div>`;
+    }
+
+    function adminDashboard() {
+      return `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-6"><p class="text-zinc-500 text-sm">Total Users</p><p class="text-emerald-400 text-3xl font-bold">${allData.users.length}</p></div>
+        <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-6"><p class="text-zinc-500 text-sm">Videos</p><p class="text-blue-400 text-3xl font-bold">${allData.videos.length}</p></div>
+        <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-6"><p class="text-zinc-500 text-sm">Categories</p><p class="text-purple-400 text-3xl font-bold">${allData.categories.length}</p></div>
+        <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-6"><p class="text-zinc-500 text-sm">Status</p><p class="text-green-400 text-3xl font-bold">Active</p></div>
+      </div>`;
+    }
+
+    function adminCategories() {
+      return `<div class="mb-4"><form id="cat-form" class="flex gap-2"><input id="cat-name" placeholder="New category..." class="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5" required><button type="submit" class="bg-purple-600 hover:bg-purple-500 px-6 py-2.5 rounded-lg font-medium">Add</button></form></div>
+      <div class="space-y-2">${allData.categories.map(c => `<div class="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center justify-between"><span>${c.name}</span><button onclick="deleteCategory('${c.__backendId}')" class="text-red-400"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>`).join('')}</div>`;
+    }
+
+    function adminVideos() {
+      return `<div class="mb-4"><form id="vid-form" class="space-y-3"><input id="vid-title" placeholder="Title..." class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5" required><input id="vid-url" placeholder="URL..." class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5" required><select id="vid-cat" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5">${allData.categories.map(c => `<option value="${c.__backendId}">${c.name}</option>`).join('')}</select><button type="submit" class="w-full bg-purple-600 hover:bg-purple-500 px-6 py-2.5 rounded-lg font-medium">Add Video</button></form></div>
+      <div class="space-y-2">${allData.videos.map(v => `<div class="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center justify-between"><span class="text-sm">${v.title}</span><button onclick="deleteVideo('${v.__backendId}')" class="text-red-400"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>`).join('')}</div>`;
+    }
+
+    function adminUsers() {
+      return `<div class="space-y-2">${allData.users.map(u => {
+        const sub = subscriptionMap[u.phone];
+        const isExpired = sub && new Date(sub.expiresAt) < new Date();
+        return `<div class="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <p class="font-semibold">${u.name}</p>
+              <p class="text-sm text-zinc-500">${u.phone}</p>
+              <p class="text-xs mt-1"><span class="px-2 py-1 rounded ${u.status === 'approved' ? 'bg-green-900 text-green-300' : u.status === 'pending' ? 'bg-yellow-900 text-yellow-300' : 'bg-red-900 text-red-300'}">${u.status}</span></p>
+            </div>
+            <button onclick="deleteUser('${u.phone}')" class="text-red-400 hover:text-red-300"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+          </div>
+          ${u.status === 'pending' ? `<div class="flex gap-2 mt-3">
+            <button onclick="approveUser('${u.phone}')" class="flex-1 bg-green-600 hover:bg-green-500 px-3 py-2 rounded-lg text-sm font-medium">Approve</button>
+            <button onclick="rejectUser('${u.phone}')" class="flex-1 bg-red-600 hover:bg-red-500 px-3 py-2 rounded-lg text-sm font-medium">Reject</button>
+          </div>` : ''}
+          ${u.status === 'approved' ? `<button onclick="document.getElementById('sub-modal-${u.phone}').classList.remove('hidden')" class="w-full mt-3 bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded-lg text-sm font-medium">Manage Subscription</button>
+          <div id="sub-modal-${u.phone}" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onclick="if(event.target===this) this.classList.add('hidden')">
+            <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-6 w-full max-w-md">
+              <h3 class="text-lg font-bold mb-4">Manage Subscription - ${u.name}</h3>
+              <div class="space-y-3">
+                <div><label class="block text-sm text-zinc-400 mb-1">Select Plan</label>
+                  <select id="plan-select-${u.phone}" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm">
+                    <option value="">Select a plan...</option>
+                    <option value="basic">Basic - 1 Month</option>
+                    <option value="premium">Premium - 3 Months</option>
+                    <option value="elite">Elite - 1 Year</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </div>
+                <div id="custom-days-${u.phone}" class="hidden"><label class="block text-sm text-zinc-400 mb-1">Days</label>
+                  <input id="days-input-${u.phone}" type="number" placeholder="e.g. 30" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm" min="1">
+                </div>
+                <div><label class="block text-sm text-zinc-400 mb-1">Expiry Date</label>
+                  <input id="expiry-date-${u.phone}" type="date" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm">
+                </div>
+                <button onclick="activateSubscription('${u.phone}')" class="w-full bg-green-600 hover:bg-green-500 px-3 py-2 rounded-lg text-sm font-medium">Activate Subscription</button>
+                ${sub && !isExpired ? `<button onclick="deactivateSubscription('${u.phone}')" class="w-full bg-red-600 hover:bg-red-500 px-3 py-2 rounded-lg text-sm font-medium">Deactivate</button>` : ''}
+              </div>
+              <button onclick="document.getElementById('sub-modal-${u.phone}').classList.add('hidden')" class="w-full mt-4 bg-zinc-700 hover:bg-zinc-600 px-3 py-2 rounded-lg text-sm">Close</button>
+            </div>
+          </div>
+          ${sub ? `<div class="mt-3 text-xs text-zinc-400 bg-zinc-800/50 p-2 rounded">
+            <p>Plan: ${sub.subscription_plan || 'N/A'}</p>
+            <p>Active: ${sub.subscription_active === 'true' ? '✓ Yes' : '✗ No'}</p>
+            <p>Expires: ${new Date(sub.expiresAt).toLocaleDateString()}</p>
+            ${isExpired ? '<p class="text-red-400 font-semibold">⚠ Expired</p>' : ''}
+          </div>` : ''}` : ''}
+        </div>`;
+      }).join('')}</div>`;
+    }
+
+    function adminSubscriptions() {
+      return `<div class="space-y-2">${allData.users.filter(u => u.status === 'approved').map(u => {
+        const sub = subscriptionMap[u.phone];
+        if (!sub) return '';
+        const isExpired = new Date(sub.expiresAt) < new Date();
+        const isActive = sub.subscription_active === 'true';
+        return `<div class="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+          <div class="flex items-center justify-between mb-2">
+            <div>
+              <p class="font-semibold">${u.name}</p>
+              <p class="text-sm text-zinc-500">${u.phone}</p>
+            </div>
+            <span class="px-3 py-1 rounded text-sm font-medium ${isActive && !isExpired ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'}">${isActive && !isExpired ? 'Active' : 'Inactive'}</span>
+          </div>
+          <div class="text-xs text-zinc-400 mt-2">
+            <p>Plan: <span class="text-zinc-200">${sub.subscription_plan}</span></p>
+            <p>Expires: <span class="text-zinc-200">${new Date(sub.expiresAt).toLocaleDateString()}</span></p>
+          </div>
+        </div>`;
+      }).join('')}</div>`;
+    }
+
+    async function createCategory(name) {
+      if (isLoading) return;
+      isLoading = true;
+      const result = await window.dataSdk.create({ type: 'category', name: name });
+      isLoading = false;
+      if (result.isError) { toast('Failed to create category', 'error'); return false; }
+      return true;
+    }
+
+    async function deleteCategory(id) {
+      if (isLoading) return;
+      isLoading = true;
+      const category = allData.categories.find(c => c.__backendId === id);
+      if (!category) { isLoading = false; return false; }
+      const result = await window.dataSdk.delete(category);
+      isLoading = false;
+      if (result.isError) { toast('Failed to delete category', 'error'); return false; }
+      return true;
+    }
+
+    async function createVideo(title, url, catId) {
+      if (isLoading) return;
+      isLoading = true;
+      const result = await window.dataSdk.create({ type: 'video', title: title, url: url, category: catId });
+      isLoading = false;
+      if (result.isError) { toast('Failed to add video', 'error'); return false; }
+      return true;
+    }
+
+    async function deleteVideo(id) {
+      if (isLoading) return;
+      isLoading = true;
+      const video = allData.videos.find(v => v.__backendId === id);
+      if (!video) { isLoading = false; return false; }
+      const result = await window.dataSdk.delete(video);
+      isLoading = false;
+      if (result.isError) { toast('Failed to delete video', 'error'); return false; }
+      return true;
+    }
+
+    async function deleteUser(phone) {
+      if (isLoading) return;
+      isLoading = true;
+      const user = allData.users.find(u => u.phone === phone);
+      if (!user) { isLoading = false; return false; }
+      const result = await window.dataSdk.delete(user);
+      isLoading = false;
+      if (result.isError) { toast('Failed to delete user', 'error'); return false; }
+      return true;
+    }
+
+    async function approveUser(phone) {
+      if (isLoading) return;
+      isLoading = true;
+      const user = allData.users.find(u => u.phone === phone);
+      if (!user) { isLoading = false; return false; }
+      const updated = { ...user, status: 'approved' };
+      const result = await window.dataSdk.update(updated);
+      isLoading = false;
+      if (result.isError) { toast('Failed to approve user', 'error'); return false; }
+      toast('User approved!');
+      return true;
+    }
+
+    async function rejectUser(phone) {
+      if (isLoading) return;
+      isLoading = true;
+      const user = allData.users.find(u => u.phone === phone);
+      if (!user) { isLoading = false; return false; }
+      const updated = { ...user, status: 'rejected' };
+      const result = await window.dataSdk.update(updated);
+      isLoading = false;
+      if (result.isError) { toast('Failed to reject user', 'error'); return false; }
+      toast('User rejected');
+      return true;
+    }
+
+    async function activateSubscription(phone) {
+      if (isLoading) return;
+      const planSelect = document.getElementById(`plan-select-${phone}`);
+      const plan = planSelect.value;
+      if (!plan) { toast('Please select a plan', 'error'); return; }
+
+      let expiryDate = new Date();
+      if (plan === 'basic') expiryDate.setMonth(expiryDate.getMonth() + 1);
+      else if (plan === 'premium') expiryDate.setMonth(expiryDate.getMonth() + 3);
+      else if (plan === 'elite') expiryDate.setFullYear(expiryDate.getFullYear() + 1);
+      else if (plan === 'custom') {
+        const customDays = parseInt(document.getElementById(`days-input-${phone}`).value);
+        const customDate = document.getElementById(`expiry-date-${phone}`).value;
+        if (customDate) {
+          expiryDate = new Date(customDate);
+        } else if (customDays > 0) {
+          expiryDate.setDate(expiryDate.getDate() + customDays);
+        } else {
+          toast('Please enter days or select a date', 'error');
+          return;
+        }
+      }
+
+      isLoading = true;
+      let existingSub = subscriptionMap[phone];
+      let result;
+      
+      if (existingSub) {
+        const updated = { ...existingSub, subscription_plan: plan, subscription_active: 'true', expiresAt: expiryDate.toISOString() };
+        result = await window.dataSdk.update(updated);
+      } else {
+        result = await window.dataSdk.create({ 
+          type: 'subscription', 
+          phone: phone, 
+          username: phone,
+          subscription_plan: plan, 
+          subscription_active: 'true', 
+          activatedAt: new Date().toISOString(),
+          expiresAt: expiryDate.toISOString()
+        });
+      }
+      
+      isLoading = false;
+      if (result.isError) { toast('Failed to activate subscription', 'error'); return; }
+      toast('Subscription activated!');
+      document.getElementById(`sub-modal-${phone}`).classList.add('hidden');
+      render();
+    }
+
+    async function deactivateSubscription(phone) {
+      if (isLoading) return;
+      isLoading = true;
+      const sub = subscriptionMap[phone];
+      if (!sub) { isLoading = false; return; }
+      const updated = { ...sub, subscription_active: 'false' };
+      const result = await window.dataSdk.update(updated);
+      isLoading = false;
+      if (result.isError) { toast('Failed to deactivate subscription', 'error'); return; }
+      toast('Subscription deactivated');
+      document.getElementById(`sub-modal-${phone}`).classList.add('hidden');
+      render();
+    }
+
+    async function initDataSDK() {
+      if (!window.dataSdk) { 
+        console.warn('Data SDK not available');
+        return;
+      }
+      try {
+        const result = await window.dataSdk.init(dataHandler);
+        if (result.isError) { 
+          console.error('SDK init failed:', result.error);
+        }
+      } catch (err) {
+        console.error('SDK exception:', err);
+      }
+    }
+
+    function bindEvents() {
+      const loginForm = document.getElementById('login-form');
+      if (loginForm) {
+        loginForm.onsubmit = (e) => {
+          e.preventDefault();
+          const phone = document.getElementById('l-phone').value.trim();
+          const pass = document.getElementById('l-pass').value;
+          const user = allData.users.find(u => u.phone === phone && u.password === pass && u.status === 'approved');
+          if (!user) { toast('Invalid credentials or not approved', 'error'); return; }
+          
+          const sub = subscriptionMap[phone];
+          if (!sub || sub.subscription_active !== 'true' || new Date(sub.expiresAt) < new Date()) {
+            toast('Your subscription is inactive or expired', 'error');
+            return;
+          }
+          
+          currentUser = { username: user.name, phone: user.phone };
+          currentView = 'browse';
+          toast(`Welcome, ${user.name}!`);
+          render();
+        };
+      }
+
+      const adminLoginForm = document.getElementById('admin-login-form');
+      if (adminLoginForm) {
+        adminLoginForm.onsubmit = (e) => {
+          e.preventDefault();
+          const u = document.getElementById('a-user').value.trim();
+          const p = document.getElementById('a-pass').value;
+          if (u === ADMIN_USER && p === ADMIN_PASS) {
+            currentUser = { username: ADMIN_USER };
+            currentView = 'admin';
+            toast('Welcome, Admin!');
+            render();
+            return;
+          }
+          toast('Invalid credentials', 'error');
+        };
+      }
+
+      const regForm = document.getElementById('reg-form');
+      if (regForm) {
+        regForm.onsubmit = async (e) => {
+          e.preventDefault();
+          const name = document.getElementById('r-name').value.trim();
+          const phone = document.getElementById('r-phone').value.trim();
+          const pass = document.getElementById('r-pass').value;
+          const pass2 = document.getElementById('r-pass2').value;
+          if (!name || !phone || pass.length < 6 || pass !== pass2) { toast('Invalid input', 'error'); return; }
+          if (allData.users.find(u => u.phone === phone)) { toast('Phone already registered', 'error'); return; }
+          isLoading = true;
+          const result = await window.dataSdk.create({ type: 'user', name: name, phone: phone, password: pass, status: 'pending' });
+          isLoading = false;
+          if (result.isError) { toast('Registration failed', 'error'); return; }
+          toast('Registration submitted! Awaiting approval.');
+          currentView = 'login';
+          render();
+        };
+      }
+
+      const catForm = document.getElementById('cat-form');
+      if (catForm) {
+        catForm.onsubmit = async (e) => {
+          e.preventDefault();
+          const name = document.getElementById('cat-name').value.trim();
+          if (!name) return;
+          await createCategory(name);
+          document.getElementById('cat-name').value = '';
+          render();
+        };
+      }
+
+      const vidForm = document.getElementById('vid-form');
+      if (vidForm) {
+        vidForm.onsubmit = async (e) => {
+          e.preventDefault();
+          const title = document.getElementById('vid-title').value.trim();
+          const url = document.getElementById('vid-url').value.trim();
+          const catId = document.getElementById('vid-cat').value;
+          if (!title || !url || !catId) return;
+          await createVideo(title, url, catId);
+          document.getElementById('vid-title').value = '';
+          document.getElementById('vid-url').value = '';
+          render();
+        };
+      }
+
+      const searchInput = document.getElementById('search-input');
+      if (searchInput) {
+        searchInput.oninput = (e) => {
+          const q = e.target.value.toLowerCase();
+          const content = document.getElementById('browse-content');
+          if (!content) return;
+          const filtered = q ? allData.videos.filter(v => v.title.toLowerCase().includes(q)) : allData.videos;
+          content.innerHTML = filtered.map(v => videoCard(v)).join('') || '<p class="text-zinc-500">No videos found</p>';
+          lucide.createIcons();
+        };
+      }
+
+      document.querySelectorAll('.category-btn').forEach(btn => {
+        btn.onclick = () => {
+          document.querySelectorAll('.category-btn').forEach(b => b.classList.remove('bg-emerald-600', 'text-white'));
+          btn.classList.add('bg-emerald-600', 'text-white');
+          const catId = btn.dataset.cat;
+          const content = document.getElementById('browse-content');
+          if (!content) return;
+          const filtered = catId === 'all' ? allData.videos : allData.videos.filter(v => v.category === catId);
+          content.innerHTML = filtered.map(v => videoCard(v)).join('');
+          lucide.createIcons();
+        };
+      });
+
+      document.querySelectorAll('select[id^="plan-select-"]').forEach(select => {
+        select.onchange = (e) => {
+          const phone = e.target.id.split('-')[2];
+          const customDiv = document.getElementById(`custom-days-${phone}`);
+          if (e.target.value === 'custom') {
+            customDiv.classList.remove('hidden');
+          } else {
+            customDiv.classList.add('hidden');
+          }
+        };
+      });
+
+      animateCounters();
+    }
+
+    function animateCounters() {
+      document.querySelectorAll('.stat-counter').forEach(el => {
+        const target = parseInt(el.dataset.target);
+        let current = 0;
+        const increment = Math.ceil(target / 100);
+        const interval = setInterval(() => {
+          current += increment;
+          if (current >= target) { current = target; clearInterval(interval); }
+          el.textContent = current.toLocaleString();
+        }, 20);
+      });
+    }
+
+    function toggleLanguage() {
+      const isArabic = localStorage.getItem('isArabic') === 'true';
+      localStorage.setItem('isArabic', isArabic ? 'false' : 'true');
+      render();
+    }
+
+    async function toggleFavorite(videoId, videoTitle) {
+      if (isLoading) return;
+      isLoading = true;
+      
+      const existingFavorite = allData.favorites.find(f => f.video_id === videoId && f.user_phone === currentUser.phone);
+      
+      if (existingFavorite) {
+        const result = await window.dataSdk.delete(existingFavorite);
+        isLoading = false;
+        if (result.isError) { toast('Failed to remove from favorites', 'error'); return; }
+        toast('Removed from favorites');
+      } else {
+        const result = await window.dataSdk.create({
+          type: 'favorite',
+          video_id: videoId,
+          user_phone: currentUser.phone,
+          favorite: 'true'
+        });
+        isLoading = false;
+        if (result.isError) { toast('Failed to add to favorites', 'error'); return; }
+        toast(`Added "${videoTitle}" to favorites!`);
+      }
+      render();
+    }
+
+    const defaultConfig = { hero_tagline: 'Train Smart. Watch. Learn.', logo_url: 'https://i.postimg.cc/XN25zxCG/1000234956-removebg-preview.png' };
+    let config = { ...defaultConfig };
+
+    async function initSDK() {
+      if (!window.elementSdk) return;
+      try {
+        await window.elementSdk.init({
+          defaultConfig,
+          onConfigChange: (c) => {
+            config = c;
+            const el = document.getElementById('hero-tagline');
+            if (el && c.hero_tagline) el.textContent = c.hero_tagline;
+            
+            const logoImg = document.querySelector('.logo-img');
+            const heroLogoImg = document.querySelector('.hero-logo-img');
+            if (c.logo_url) {
+              if (logoImg) logoImg.src = c.logo_url;
+              if (heroLogoImg) heroLogoImg.src = c.logo_url;
+            }
+          },
+          mapToCapabilities: (c) => ({ recolorables: [], borderables: [], fontEditable: undefined, fontSizeable: undefined }),
+          mapToEditPanelValues: (c) => new Map([
+            ['hero_tagline', c.hero_tagline || defaultConfig.hero_tagline],
+            ['logo_url', c.logo_url || defaultConfig.logo_url]
+          ])
+        });
+      } catch (err) {
+        console.error('Element SDK error:', err);
+      }
+    }
+
+    async function start() {
+      try {
+        render();
+        await initSDK();
+        await initDataSDK();
+      } catch (err) {
+        console.error('Start error:', err);
+      }
+    }
+
+    start();
+  </script>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1252813616fe195',t:'MTc4MjU3MDY5OC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
